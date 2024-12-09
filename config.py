@@ -3,25 +3,35 @@ from typing import Optional
 from mcts import visit_softmax_temperature
 import matplotlib.pyplot as plt
 import numpy as np
+from pathlib import Path
+import time
 
 MAX_FLOAT_VAL = float('inf')
 
 KnownBounds = collections.namedtuple('KnownBounds', ['min', 'max'])
+# Ensure image_dir is a Path object
+image_dir = Path("tmp_results")
 
-
-class TrainResults(object):
-
+class TrainResults:
     def __init__(self):
         self.value_losses = []
         self.reward_losses = []
         self.policy_losses = []
         self.total_losses = []
 
+def save_plot(self, filename):
+    # Ensure the directory exists
+    image_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = time.strftime("%Y%m%d-%H%M%S")  # Get current time as a string
+    filename_with_timestamp = f"{timestamp}_{filename}"
+    plt.savefig(image_dir / filename_with_timestamp)
+
     def plot_total_loss(self):
         x_vals = np.arange(len(self.total_losses))
         plt.plot(x_vals, self.total_losses, label="Train Loss")
         plt.xlabel("Train Steps")
         plt.ylabel("Loss")
+        self.save_plot("train_loss.png")
         plt.show()
 
     def plot_individual_losses(self):
@@ -32,6 +42,7 @@ class TrainResults(object):
         plt.xlabel("Train Steps")
         plt.ylabel("Losses")
         plt.legend()
+        self.save_plot("individual_loss.png")
         plt.show()
 
     def plot_policy_loss(self):
@@ -40,11 +51,10 @@ class TrainResults(object):
         plt.xlabel("Train Steps")
         plt.ylabel("Losses")
         plt.legend()
+        self.save_plot("policy_loss.png")
         plt.show()
 
-
-class TestResults(object):
-
+class TestResults:
     def __init__(self):
         self.test_rewards = []
 
@@ -53,16 +63,18 @@ class TestResults(object):
 
     def last_n_average(self, n):
         last_n = self.test_rewards[-n:]
-        l = len(last_n)
-        s = sum(last_n)
-        return s / l, l
+        return sum(last_n) / len(last_n), len(last_n)
 
     def plot_rewards(self):
         x_vals = np.arange(len(self.test_rewards))
         plt.plot(x_vals, self.test_rewards, label="Test Reward")
         plt.xlabel("Test Episodes")
         plt.ylabel("Reward")
+        # Use TrainResults' save_plot logic or implement similarly
+        image_dir.mkdir(parents=True, exist_ok=True)
+        plt.savefig(image_dir / "test_rewards.png")
         plt.show()
+
 
 
 class MinMaxStats(object):

@@ -174,87 +174,54 @@ def train_network(config, network, replay_buffer, optimizer, train_results):
 
 def update_weights(config, network, optimizer, batch, train_results):
     """
-    TODO: Implement this function
     Train the network_model by sampling games from the replay_buffer.
-    config: A dictionary specifying parameter configurations
-    network: The network class to train
-    optimizer: The optimizer used to update the network_model weights
-    batch: The batch of experience
-    train_results: The class to store the train results
-
-    Hints:
-    The network initial_model should be used to create the hidden state
-    The recurrent_model should be used as the dynamics, which unroll in the latent space.
-
-    You should accumulate loss in the value, the policy, and the reward (after the first state)
-    Loss Note: The policy outputs are the logits, same with the value categorical representation
-    You should use tf.nn.softmax_cross_entropy_with_logits to compute the loss in these cases
     """
-    def loss():
+    with tf.GradientTape() as tape:
         loss = 0
         total_value_loss = 0
         total_reward_loss = 0
         total_policy_loss = 0
 
         state_batch, targets_init_batch, targets_recurrent_batch, actions_batch = batch
-        
+
         # Initial inference
         hidden_states = network.representation_network(tf.reshape(state_batch, (-1, 4)))
-        # hidden_states = network.representation_network(state_batch)
         value_logits, policy_logits = network.value_network(hidden_states), network.policy_network(hidden_states)
-
 
         target_value_batch, _, target_policy_batch = zip(*targets_init_batch)
         target_value_batch = network._scalar_to_support(tf.convert_to_tensor(target_value_batch))
-
-        # print("target_value_batch shape:", target_value_batch.shape)
-        # print("value_logits shape:", value_logits.shape)
-        # print("target_value_batch:", target_value_batch)
-        # print("value_logits:", value_logits)
-
 
         # Value and policy loss for initial state
         value_loss = tf.nn.softmax_cross_entropy_with_logits(labels=target_value_batch, logits=value_logits)
         policy_loss = tf.nn.softmax_cross_entropy_with_logits(labels=tf.convert_to_tensor(target_policy_batch), logits=policy_logits)
 
-
         # Scale value loss
         value_loss *= 0.25
 
-        loss += value_loss + policy_loss
-        total_value_loss += value_loss
-        total_policy_loss += policy_loss
+        loss += tf.reduce_mean(value_loss + policy_loss)
+        total_value_loss += tf.reduce_mean(value_loss)
+        total_policy_loss += tf.reduce_mean(policy_loss)
 
         # Recurrent unroll steps
         for actions, targets in zip(actions_batch, targets_recurrent_batch):
             target_value_batch, target_reward_batch, target_policy_batch = zip(*targets)
 
-            # hidden_states = tf.convert_to_tensor(hidden_states[0])
-            # actions = tf.tile(tf.convert_to_tensor(actions[0]), [hidden_states.shape[0], 1])
-            
             conditioned_hidden_list = []  # List to store each conditioned hidden state
-
             for i in range(hidden_states.shape[0]):  # Iterate over the batch dimension
                 single_hidden_state = tf.reshape(hidden_states[i], (1, 4))  # Reshape to (1, 4)
-
-                # Create conditioned hidden state for this specific sample
-                conditioned_hidden = network._conditioned_hidden_state(single_hidden_state, actions)
-
-                # Add to the list
+                conditioned_hidden = network._conditioned_hidden_state(
+                    single_hidden_state, actions
+                )
                 conditioned_hidden_list.append(conditioned_hidden)
 
             # Stack all conditioned hidden states to form a tensor of shape (batch_size, 6)
             conditioned_hidden_tensor = tf.concat(conditioned_hidden_list, axis=0)
-            # print("shape of conditioned_hidden_states", conditioned_hidden_tensor.shape)
+
             # Recurrent inference
             hidden_states = network.dynamic_network(conditioned_hidden_tensor)
-            # print ("hidden states shape:", hidden_states.shape)
             reward_logits = network.reward_network(conditioned_hidden_tensor)
             value_logits = network.value_network(hidden_states)
             policy_logits = network.policy_network(hidden_states)
-
-            # value_logits, reward_logits, policy_logits, hidden_states = network.recurrent_inference(hidden_states, actions)
-
 
             # Convert targets to correct formats
             target_value_batch = network._scalar_to_support(tf.convert_to_tensor(target_value_batch))
@@ -272,7 +239,7 @@ def update_weights(config, network, optimizer, batch, train_results):
 
             # Scale value loss
             value_loss *= 0.25
-
+            # print("value loss",value_loss)
             # Sum step losses
             step_loss = value_loss + policy_loss + reward_loss
 
@@ -293,11 +260,8 @@ def update_weights(config, network, optimizer, batch, train_results):
         train_results.value_losses.append(total_value_loss)
         train_results.policy_losses.append(total_policy_loss)
         train_results.reward_losses.append(total_reward_loss)
-        # print('Loss is ', loss)
-        return loss
 
-    # Minimize loss and update weights
-    optimizer.minimize(loss=loss, var_list=network.cb_get_variables())
+    # Compute gradients and apply
+    gradients = tape.gradient(loss, network.cb_get_variables()())
+    optimizer.apply_gradients(zip(gradients, network.cb_get_variables()()))
     network.train_steps += 1
-
-    #raise NotImplementedError()

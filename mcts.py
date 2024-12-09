@@ -1,4 +1,5 @@
 import numpy as np
+import tensorflow as tf
 
 
 class Node(object):
@@ -73,25 +74,23 @@ def select_action(config, num_moves, node, network, test=False):
     return action
 
 
+
 def select_child(config, node, min_max_stats):
     """
-    TODO: Implement this function
     Select a child in the MCTS
     This should be done using the UCB score, which uses the
     normalized Q values from the min max stats
     """
+    best_action, best_child = None, None
     max_ucb = float('-inf')
-    action , child = None, None
+
     for a, c in node.children.items():
-        c.prior = float(c.prior)
         ucb = ucb_score(config, node, c, min_max_stats)
         if ucb > max_ucb:
             max_ucb = ucb
-            action = a
-            child = c
-    #raise NotImplementedError()
-    return action, child
+            best_action, best_child = a, c
 
+    return best_action, best_child
 
 def ucb_score(config, parent, child, min_max_stats):
     """
@@ -109,8 +108,8 @@ def ucb_score(config, parent, child, min_max_stats):
         value_score = 0
     return prior_score + value_score
 
-
 def expand_root(node, actions, network, current_state):
+  
     """
     TODO: Implement this function
     Expand the root node given the current state
@@ -118,34 +117,34 @@ def expand_root(node, actions, network, current_state):
     This should perform initial inference, and calculate a softmax policy over children
     You should set the attributes hidden representation, the reward, the policy and children of the node
     Also, set node.expanded to be true
-    For setting the nodes children, you should use node.children and  instantiate
+    For setting the nodes children, you should use node.children and instantiate
     with the prior from the policy
+    Args:
+        action: list(range(config.action_space_size))
 
     Return: the value of the root
     """
-    # if isinstance(current_state, tuple):
-    #     current_state = np.hstack([current_state[0]]).astype(np.float32)  # Ignore empty dictionary
-
-    current_state = current_state.reshape(1, -1)
+    # Reshape state for inference
+    state_input = current_state.reshape(1, -1)
 
     # Perform initial inference
-    value, reward, policy_logits, hidden_representation = network.initial_inference(current_state)
+    root_value, root_reward, logits, root_hidden = network.initial_inference(state_input)
 
-    # Set root node attributes
-    node.hidden_representation = hidden_representation
-    node.reward = reward
+    # Update node attributes
+    node.hidden_representation = root_hidden
+    node.reward = root_reward
     node.expanded = True
 
-    # Calculate softmax policy probabilities
-    policy = np.exp(policy_logits) / np.sum(np.exp(policy_logits))
+    # Compute softmax policy
+    policy_probs = np.exp(logits) / np.sum(np.exp(logits))
+    node.policy = policy_probs
 
-    node.policy = policy
+    # Set up child nodes with priors
+    for action_idx, prior_prob in zip(actions, policy_probs.flatten()):
+        node.children[action_idx] = Node(prior_prob)
 
-    # Initialize child nodes with scalar priors
-    for action, prior in zip(actions, policy.flatten()):  # Ensure prior is scalar
-        node.children[action] = Node(prior)
+    return root_value
 
-    return value
 
 
 def expand_node(node, actions, network, parent_state, parent_action):
@@ -157,24 +156,26 @@ def expand_node(node, actions, network, parent_state, parent_action):
 
     Return: value
     """
-    value, reward, policy_logits, hidden_representation = network.recurrent_inference(parent_state, parent_action)
+    # Ensure parent_state and parent_action have the correct dimensions
+    state_input = np.array([parent_state]).astype(np.float32)
+    action_input = np.array([parent_action]).astype(np.float32)
+
+    value, rewards, logits, hidden_state = network.recurrent_inference(tf.reshape(parent_state, (1, -1)), tf.reshape(parent_action, (1, -1)))
 
     # Set node attributes
-    node.hidden_representation = hidden_representation
-    node.reward = reward
+    node.reward = rewards
+    node.hidden_representation = hidden_state
     node.expanded = True
-
     # Calculate softmax policy probabilities
-    policy = np.exp(policy_logits) / np.sum(np.exp(policy_logits))
 
-    node.policy = policy
-    
+    # Compute policy logits and initialize children nodes
+    policy = logits.numpy().flatten()
     # Initialize child nodes with scalar priors
-    for action, prior in zip(actions, policy.flatten()):  # Ensure prior is scalar
-        node.children[action] = Node(prior)
+
+    for action_idx, prior in enumerate(policy):
+        node.children[action_idx] = Node(prior)
 
     return value
-
 
 def backpropagate(path, value, discount, min_max_stats):
     """
@@ -191,7 +192,6 @@ def backpropagate(path, value, discount, min_max_stats):
         node.value_sum += discounted_value
         min_max_stats.update(node.value())
         discounted_value = node.reward + discount * discounted_value
-    #raise NotImplementedError()
 
 
 def add_exploration_noise(config, node):
@@ -218,34 +218,27 @@ def visit_softmax_temperature(num_moves):
     return 1
 
 
-def softmax_sample(visit_counts, temperature):
+def softmax_sample(visit_counts_action, temperature):
     """
-    Sample an actions
+    Sample an action
 
     Input: visit_counts as list of [(visit_count, action)] for each child
     If temperature == 0, choose argmax
     Else: Compute distribution over visit_counts and sample action as in writeup
     """
+    # Extract visit counts and actions
+    visit_counts = np.array([count for count, _ in visit_counts_action])
+    actions = [action for _, action in visit_counts_action]
 
-    # YOUR CODE HERE
-    # If temperature is 0, select the action with the highest visit count (argmax)
     if temperature == 0:
-        return max(visit_counts, key=lambda x: x[0])[1]
-
-    # Compute the scaled visit counts
-    visit_counts_scaled = [
-        (visit_count**(1 / temperature), action) for visit_count, action in visit_counts
-    ]
-
-    # Calculate the total sum of scaled visit counts
-    total = sum(visit_count for visit_count, _ in visit_counts_scaled)
-
-    # Compute probabilities for each action
-    probabilities = [
-        visit_count / total for visit_count, _ in visit_counts_scaled
-    ]
-
-    # Extract actions and perform random sampling based on probabilities
-    actions = [action for _, action in visit_counts_scaled]
-    return np.random.choice(actions, p=probabilities)
-    #raise NotImplementedError()
+        # Select action with the highest visit count
+        best_action_idx = np.argmax(visit_counts)
+        return actions[best_action_idx]
+    else:
+        # Compute probability distribution
+        adjusted_counts = visit_counts ** (1 / temperature)
+        probabilities = adjusted_counts / np.sum(adjusted_counts)
+        
+        # Sample an action based on the computed probabilities
+        sampled_idx = np.random.choice(len(actions), p=probabilities)
+        return actions[sampled_idx]

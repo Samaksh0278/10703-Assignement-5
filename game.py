@@ -49,8 +49,7 @@ class Game:
         self.root_values.append(root.value())
 
     def action(self, action, env):
-        obs, reward, done, truncated, _ = env.step(action)
-        done = done or truncated
+        obs, reward, done, _ = env.step(action)
         # Only for walker environment
         # obs, reward, done, _ = env.step(CONVERTER[action])
         self.curr_state = obs

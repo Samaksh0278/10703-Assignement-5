@@ -28,10 +28,11 @@ def self_play(env, config: MuZeroConfig, replay_buffer: ReplayBuffer, network: C
         print(f"Last {n} rewards average: {reward_avg}")
         if reward_avg >= CARTPOLE_STOP_REWARD:
             print("Agent Successfully learned cartpole")
-            # Plotting code here
             train_results.plot_individual_losses()
             train_results.plot_total_loss()
             test_rewards.plot_rewards()
+
+            # Plotting code here
             return
 
 
@@ -56,7 +57,7 @@ def play_game(config: MuZeroConfig, network: CartPoleNetwork, env, games_played)
     games_played: how many games played, used in visit_softmax_temperature_fn
     """
     # env.seed(1) Use for reproducibility of trajectories
-    start_state = env.reset()[0]
+    start_state = env.reset()
     # Create Game Objects
     game = Game(config.action_space_size, config.discount, start_state)
     while not game.done and len(game.action_history) < config.max_moves:
@@ -92,7 +93,7 @@ def test(config: MuZeroConfig, network: CartPoleNetwork, env, test_rewards: Test
     returns = 0
     for _ in range(config.episodes_per_test):
         # env.seed(1) Use for reproducibility of trajectories
-        start_state = env.reset()[0]
+        start_state = env.reset()
         game = Game(config.action_space_size, config.discount, start_state)
         while not game.done and len(game.action_history) < config.max_moves:
             min_max_stats = MinMaxStats(config.known_bounds)

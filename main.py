@@ -14,7 +14,7 @@ for gpu in gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
 
 
-SEED = 0
+SEED = 10
 
 
 def set_seeds(seed=SEED):
@@ -26,7 +26,7 @@ def set_seeds(seed=SEED):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train MuZero.')
-    parser.add_argument('--num_simulations', type=int, default=10)
+    parser.add_argument('--num_simulations', type=int, default=50)
     args = parser.parse_args()
     print("num simulations:", args.num_simulations)
 
